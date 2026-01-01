@@ -1,7 +1,7 @@
 # ================================
 # ACO.py
 # Ant Colony Optimization for Employee Shift Scheduling
-# Interactive Streamlit App
+# Interactive Streamlit App (dataset fixed)
 # ================================
 
 import streamlit as st
@@ -11,46 +11,28 @@ import random
 import matplotlib.pyplot as plt
 
 # ================================
-# Load Dataset
+# LOAD DATASET (Fixed File)
 # ================================
 st.title("🐜 ACO Employee Shift Scheduling (Multi-Department)")
 
-uploaded_file = st.file_uploader("Upload Excel/CSV dataset", type=["xlsx", "csv"])
-if uploaded_file is not None:
-    if uploaded_file.name.endswith(".xlsx"):
-        xl = pd.ExcelFile(uploaded_file)
-        st.sidebar.subheader("Select Sheet")
-        sheet = st.sidebar.selectbox("Sheet", xl.sheet_names)
-        df = xl.parse(sheet)
-    else:
-        df = pd.read_csv(uploaded_file)
+DATA_FILE = "Store Size 6 - SS6-CV10-01.xlsx"  # <-- file harus ada dalam folder yang sama
+sheet_name = "Sheet1"  # <-- adjust ikut sheet name sebenar
 
-    st.success(f"Dataset loaded: {uploaded_file.name}")
+df = pd.read_excel(DATA_FILE, sheet_name=sheet_name)
+st.success(f"Dataset loaded from {DATA_FILE}")
 
-    # Convert dataset to 3D numpy array (departments x days x time)
-    # Assumes Excel sheet format: each department block separated or single sheet structured
-    # Here we assume columns: Day1-P1,...,Day7-P28 or similar
-    # We'll convert generic: dept in first dimension
-    # For simplicity, user can adjust later
-    try:
-        n_departments = df['Department'].nunique() if 'Department' in df.columns else 6
-    except:
-        n_departments = 6
+# ================================
+# Convert dataset to 3D numpy array (dept x day x time)
+# ================================
+n_departments = 6
+n_days = 7
+n_times = 28
+DEMAND = np.zeros((n_departments, n_days, n_times), dtype=int)
 
-    n_days = 7
-    n_times = 28
-    DEMAND = np.zeros((n_departments, n_days, n_times), dtype=int)
-
-    # Example: user needs to adapt parsing based on actual Excel format
-    # For now, assuming preprocessed: sheet has each department block in order
-    for dept in range(n_departments):
-        dept_data = df.iloc[dept*n_days : (dept+1)*n_days, 0:n_times].values
-        DEMAND[dept, :, :] = dept_data.astype(int)
-
-else:
-    st.warning("Please upload your dataset first.")
-    st.stop()
-
+# Example parsing: adjust kalau dataset format lain
+for dept in range(n_departments):
+    dept_data = df.iloc[dept*n_days : (dept+1)*n_days, 0:n_times].values
+    DEMAND[dept, :, :] = dept_data.astype(int)
 
 # ================================
 # FITNESS FUNCTION
@@ -81,7 +63,6 @@ def fitness(schedule, demand, max_hours):
         penalty += np.var(workloads) * 10
 
     return penalty
-
 
 # ================================
 # ACO ALGORITHM
@@ -125,7 +106,6 @@ def ACO_scheduler(demand, n_employees, n_ants, n_iter, alpha, beta, evaporation,
 
     return best_schedule, best_score
 
-
 # ================================
 # STREAMLIT SIDEBAR PARAMETERS
 # ================================
@@ -137,72 +117,3 @@ n_iter = st.sidebar.slider("Iterations", 10, 200, 50)
 alpha = st.sidebar.slider("Alpha (pheromone)", 0.1, 5.0, 1.0)
 beta = st.sidebar.slider("Beta (heuristic)", 0.1, 5.0, 2.0)
 evaporation = st.sidebar.slider("Evaporation Rate", 0.01, 0.9, 0.3)
-Q = st.sidebar.slider("Q (deposit)", 1, 100, 50)
-max_hours = st.sidebar.slider("Max Working Hours / Week", 20, 60, 40)
-
-
-# ================================
-# RUN BUTTON
-# ================================
-if st.button("Run Scheduling ACO"):
-    best_schedule, best_score = ACO_scheduler(
-        DEMAND,
-        n_employees,
-        n_ants,
-        n_iter,
-        alpha,
-        beta,
-        evaporation,
-        Q,
-        max_hours
-    )
-
-    st.success(f"Best Fitness Score: {best_score:.2f}")
-
-    # ================================
-    # TABLE PER DEPARTMENT & DAY
-    # ================================
-    for dept in range(DEMAND.shape[0]):
-        st.subheader(f"📋 Department {dept+1} Staffing Tables")
-        total_shortage = 0
-        staff_matrix = np.sum(best_schedule[dept, :, :, :], axis=2)  # sum employees
-
-        for d in range(DEMAND.shape[1]):
-            assigned_row = staff_matrix[d, :].astype(int)
-            required_row = DEMAND[dept, d, :].astype(int)
-            shortage_row = np.maximum(0, required_row - assigned_row).astype(int)
-            total_shortage += np.sum(shortage_row)
-
-            df_day = pd.DataFrame(
-                [assigned_row, required_row, shortage_row],
-                index=["Assigned", "Required", "Shortage"],
-                columns=[f"P{i+1}" for i in range(DEMAND.shape[2])]
-            )
-            st.markdown(f"### Day {d+1}")
-            st.dataframe(
-                df_day.style.applymap(
-                    lambda x: 'background-color: red' if x > 0 else '',
-                    subset=[f"P{i+1}" for i in range(DEMAND.shape[2])]
-                )
-            )
-            st.markdown("<br>", unsafe_allow_html=True)
-
-    st.info(f"Total Shortage (all departments & days): {total_shortage}")
-
-
-    # ================================
-    # HEATMAP (combined or per department)
-    # ================================
-    st.subheader("📈 Heatmap: Assigned Employees per Department")
-    dept_choice = st.selectbox("Select Department for Heatmap", [f"Dept {i+1}" for i in range(DEMAND.shape[0])])
-    dept_idx = int(dept_choice.split()[-1]) - 1
-    staff_matrix = np.sum(best_schedule[dept_idx, :, :, :], axis=2)
-
-    fig, ax = plt.subplots(figsize=(12,4))
-    im = ax.imshow(staff_matrix, aspect='auto', cmap='viridis')
-    ax.set_xlabel("Time Period (1–28)")
-    ax.set_ylabel("Day (1–7)")
-    ax.set_title(f"Department {dept_idx+1} Assigned Employees Heatmap")
-    plt.colorbar(im)
-    st.pyplot(fig)
-
